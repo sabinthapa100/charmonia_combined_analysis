@@ -1,0 +1,11 @@
+# input directories
+input/
+# Output directories and files
+output*/
+*.pdf
+
+# Jupyter Notebook files and checkpoints
+.ipynb_checkpoints/
+
+# Git directory
+.git/
