@@ -533,9 +533,14 @@ def style_axes(ax, xlab, ylab, grid: bool=True, logx: bool=False, logy: bool=Fal
         ax.set_title(title)
 
 def step_band_xy(ax, x, y_c, y_lo, y_hi, label: Optional[str]=None, color=None):
-    """Draw a step band (like Mathematica ListStepPlot with filling)."""
-    ax.step(x, y_c, where="post", label=label, color=color, linewidth=2)
-    ax.fill_between(x, y_lo, y_hi, step="post", alpha=0.25, color=color)
+    """Draw a step band (like Mathematica ListStepPlot with filling).
+    Ensures the band color matches the midline color even when `color=None`.
+    """
+    # draw the line first and read back the resolved color
+    lines = ax.step(x, y_c, where="post", label=label, color=color, linewidth=2)
+    line_color = color if color is not None else lines[0].get_color()
+    # fill with exactly the same color
+    ax.fill_between(x, y_lo, y_hi, step="post", alpha=0.25, color=line_color)
 
 def overlay_error_members(ax, xs, members: np.ndarray, color=None, alpha: float=0.12, lw: float=1.0):
     """Overlay thin member curves (each row = a member)."""
@@ -558,16 +563,20 @@ def slice_nearest_pt_for_each_y(df: pd.DataFrame, pt_target: float) -> pd.DataFr
 def band_xy(ax, x, y_c, y_lo, y_hi, label: Optional[str]=None, color=None):
     """
     Regular (non-step) band: good for pT where points represent bin centers.
-    Ensures x is sorted so fills don't zig-zag.
+    Ensures the band color matches the midline color even when `color=None`.
     """
     x = np.asarray(x, float)
     order = np.argsort(x)
-    x = x[order]
+    x   = x[order]
     y_c = np.asarray(y_c, float)[order]
     y_lo = np.asarray(y_lo, float)[order]
     y_hi = np.asarray(y_hi, float)[order]
-    ax.plot(x, y_c, lw=2, label=label, color=color)
-    ax.fill_between(x, y_lo, y_hi, alpha=0.25, color=color)
+
+    # draw the line first and read back the resolved color
+    (line_obj,) = ax.plot(x, y_c, lw=2, label=label, color=color)
+    line_color = color if color is not None else line_obj.get_color()
+    # fill with exactly the same color
+    ax.fill_between(x, y_lo, y_hi, alpha=0.25, color=line_color)
 
 def centers_to_left_edges(centers: np.ndarray) -> np.ndarray:
     """
@@ -940,10 +949,13 @@ class CentralityModel:
             alpha = float(np.trapezoid((T[m]/T0)*w[m], b[m]) / den) if den>0 else np.nan
             Np = np.array([self.geom.Npart_pA(Ti, sigmaNN_mb) for Ti in T[m]], float)
             Np_bar = float(np.trapezoid(Np*w[m], b[m]) / den) if den>0 else np.nan
+            # <N_coll> = <sigmaNN * T(b)> with sigma converted to fm^2
+            s_fm2 = self.geom.sigma_mb_to_fm2(sigmaNN_mb)
+            Ncoll_bar = float(np.trapezoid((s_fm2*T[m])*w[m], b[m]) / den) if den>0 else np.nan
             rows.append({
                 "cent_bin": f"{cent_edges_pct[i]}-{cent_edges_pct[i+1]}%",
                 "b_left": bl, "b_right": br, "b_mean": bbar,
-                "alpha": alpha, "N_part": Np_bar
+                "alpha": alpha, "N_part": Np_bar, "N_coll": Ncoll_bar
             })
         return pd.DataFrame(rows)
 
