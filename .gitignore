@@ -33,6 +33,7 @@ Output/
 *.npy
 *.pt
 
+
 # -----------------------------------------------------------------------------
 # 3. Intermediate/Temporary Files and Caches
 # -----------------------------------------------------------------------------
@@ -42,6 +43,8 @@ Output/
 # Python compiled bytecode cache directories
 __pycache__/
 *.pyc
+.vscode
+.gitignore
 
 # Operating System/Editor temporary files (often system-specific)
 # e.g., macOS temporary files
