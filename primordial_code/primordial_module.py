@@ -584,6 +584,21 @@ class BandEnsemble:
     def central_and_band_vs_pt_per_b(self, *, y_window, pt_bins, **kwargs) -> Tuple[pd.DataFrame, pd.DataFrame]:
         dfs = self._collect("rpa_vs_pt_per_b", y_window=y_window, pt_bins=pt_bins, **kwargs); return self._combine(dfs, keys=["b","pt"])
 
+    def central_and_band_vs_pt(self, *, y_window, pt_bins, **kwargs):
+        """
+        Center + band R_pA(pT) for each state, combining all runs.
+
+        Parameters
+        ----------
+        y_window : (y_min, y_max)
+            Rapidity window matching your CNM y-window.
+        pt_bins : list of (pt_min, pt_max)
+            Must match the CNM pT binning (DEFAULT_P_EDGES).
+
+        Other kwargs are passed to PrimordialAnalysis.rpa_vs_pt.
+        """
+        dfs = self._collect("rpa_vs_pt", y_window=y_window, pt_bins=pt_bins, **kwargs)
+        return self._combine(dfs, keys=["pt"])
 
 # --------------------------------------------------------------- plotting ----
 
@@ -807,9 +822,13 @@ class CentralityIO:
 # ---------------------------------------------------------- handy wrappers ----
 
 Y_WINDOW_ALL      = (-5.0, 5.0)
-Y_WINDOW_FORWARD  = (1.5, 4.0)
-Y_WINDOW_BACKWARD = (-5.0, -2.5)
-Y_WINDOW_CENTRAL  = (-1.93, 1.93)
+# Y_WINDOW_FORWARD  = (1.5, 4.0)
+# Y_WINDOW_BACKWARD = (-5.0, -2.5)
+# Y_WINDOW_CENTRAL  = (-1.93, 1.93)
+
+Y_WINDOW_FORWARD  = (2.03,3.53)
+Y_WINDOW_BACKWARD = (-4.46,-2.96)
+Y_WINDOW_CENTRAL  = (-1.37,0.43)
 
 def rpa_vs_pt_binned(analysis: PrimordialAnalysis, *, y_window, pt_max=20.0, pt_width=2.5,
                      with_feeddown=True, use_nbin=True, weight_mode="flat", p_of_c=None, verbose=False):

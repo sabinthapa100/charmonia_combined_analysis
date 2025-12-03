@@ -1,11 +1,52 @@
-# input directories
+# -----------------------------------------------------------------------------
+# 1. Large Input/Data Files (CRITICAL for a ~9.0G input directory)
+# -----------------------------------------------------------------------------
+# The 'input' directory seems to contain massive data files (8.8G in input/eloss).
+# These are typically too large for Git and should be stored externally
+# (e.g., in cloud storage, or on a local drive and symlinked/copied).
+# We exclude the entire directory by default.
 input/
-# Output directories and files
-output*/
-*.pdf
 
-# Jupyter Notebook files and checkpoints
+# If you absolutely must keep some small files *inside* 'input'
+# but want to ignore the large 'eloss' subdirectory, you would use:
+# input/eloss/
+# !input/experimental_input/
+# !input/glauber_data/
+# !input/npdf/
+# !input/rates/
+# The ! allows specific files/directories inside an ignored folder to be tracked.
+
+# -----------------------------------------------------------------------------
+# 2. Output and Results Files
+# -----------------------------------------------------------------------------
+# Exclude directories containing generated outputs, often regenerated in analysis.
+output*/
+Output/
+
+# Exclude specific file types common in outputs.
+*.pdf
+*.csv
+*.tsv
+*.log
+*.zip
+*.tar.gz
+*.npy
+*.pt
+
+# -----------------------------------------------------------------------------
+# 3. Intermediate/Temporary Files and Caches
+# -----------------------------------------------------------------------------
+# Jupyter Notebook checkpoints
 .ipynb_checkpoints/
 
-# Git directory
-.git/
+# Python compiled bytecode cache directories
+__pycache__/
+*.pyc
+
+# Operating System/Editor temporary files (often system-specific)
+# e.g., macOS temporary files
+.DS_Store
+# Linux backup files
+*~
+# Vim/Nano swap/backup files
+*.swp

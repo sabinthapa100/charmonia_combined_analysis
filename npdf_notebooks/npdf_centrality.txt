@@ -1,0 +1,951 @@
+## NOTEBOOK USAGE OF npdf centrality dependence calculation (using npdf_data which gives 49 sets of sigmapA/sigmapp
+## gluon_ratio module which gives 49 epps21 gluon ratio sets S_AWS(b,y,pT)/S_A(y,pT)
+## glauber module gives centrality map (optical glauber model)
+# --------- publication styling toggles ----------
+SAVE_PDF = True
+SAVE_CSV = True
+ADD_MINOR_TICKS = True
+
+# subtle alpha for bands
+ALPHA_BAND = 0.22
+
+# note helpers
+def put_note(ax, text, loc="lower right"):
+    # uses your imported note_box if you like; otherwise a small text
+    try:
+        note_box(ax, text, loc=loc)
+    except Exception:
+        kw = dict(ha="right" if "right" in loc else "left",
+                  va="bottom" if "upper" in loc else "bottom")
+        xy = (0.98, 0.95) if "upper" in loc and "right" in loc else (0.02, 0.95)
+        ax.text(*xy, text, transform=ax.transAxes, fontsize=10, alpha=0.9)
+
+def beautify_axis(ax, xlabel=None, ylabel=None, xlim=None, ylim=None):
+    if xlabel: ax.set_xlabel(xlabel)
+    if ylabel: ax.set_ylabel(ylabel)
+    if xlim:   ax.set_xlim(*xlim)
+    if ylim:   ax.set_ylim(*ylim)
+    # no grid; add minor ticks if requested
+    if ADD_MINOR_TICKS:
+        try:
+            ax.xaxis.set_minor_locator(AutoMinorLocator())
+            ax.yaxis.set_minor_locator(AutoMinorLocator())
+        except Exception:
+            pass
+    ax.tick_params(which="both", direction="in")
+    
+    # --- setup ---
+import os, sys, numpy as np, pandas as pd, matplotlib.pyplot as plt
+from matplotlib.ticker import AutoMinorLocator
+from pathlib import Path
+sys.path.append("../npdf_code")
+
+# ----------------------- imports -----------------------
+from npdf_data   import NPDFSystem, RpAAnalysis, centers_to_left_edges
+from npdf_data import step_band_xy, style_axes, note_box, step_band_from_left_edges
+from gluon_ratio import EPPS21Ratio, GluonEPPSProvider
+from glauber     import OpticalGlauber, SystemSpec
+
+# ----------------------- user knobs -----------------------
+P5_DIR   = "../input/npdf/pPb5TeV"
+P8_DIR   = "../input/npdf/pPb8TeV"
+EPPS_DIR = "../input/npdf/nPDFs"
+OUTDIR   = Path("./output-npdf-comparisons"); OUTDIR.mkdir(exist_ok=True)
+
+# energies & σ_NN (mb)
+SQRTS   = { "5.02": 5023.0, "8.16": 8160.0 }
+SIG_NN  = { "5.02": 67.0,   "8.16": 71.0 }
+CENT_EDGES = [0,20,40,60,80,100]
+# analysis windows (edit as needed)
+Y_RANGES_THREE = [(-4.46,-2.96), (-1.37,0.43), (2.03,3.53)] 
+PT_RANGE   = (0.0, 20.0)
+PT_WINDOW = (1.5, 20)
+
+# inelastic σ_NN (mb)
+SIG_NN_MB = {"5.02": 67.2, "8.16": 71.0}
+
+# centrality bins [%]
+CENT_EDGES = [0,20,40,60,80,100]
+cent_bins = [(0,20),(20,40),(40,60),(60,80),(80,100)]
+Y_THREE = [(-4.46,-2.96), (-1.37,0.43), (2.03,3.53)]
+# three y-windows (Backward, Mid, Forward)
+Y_WINDOWS = [(-4.46,-2.96,"-4.46 < y < -2.96"), (-1.37,0.43,"-1.37 < y < 0.43"), (2.03,3.53,"2.03 < y < 3.53")]
+
+# pT range to draw (for raw lines) and minimal pT accepted in averages
+PT_RANGE  = (0.0, 20.0)
+PT_FLOOR  = 1.8    # drop < 1.5 GeV from weighted averages (set 0.0 to disable)
+
+# plotting
+COL = {"5.02":"tab:blue", "8.16":"tab:red"}
+LS  = {"5.02":"-", "8.16":"--"}
+DPI = 150
+# Keep your colors mapping (already present) 
+colors = {"5.02": "tab:blue", "8.16": "tab:red"}
+
+plt.rcParams.update({"figure.dpi":DPI, "font.size":12})
+
+# Build providers (use the same A and √sNN you’re analyzing) (gives 49 gluon S_AWS/S_A ratios)
+epps5 = GluonEPPSProvider(EPPS21Ratio(A=208,  path="../input/npdf/nPDFs"),
+                          sqrt_sNN_GeV=5023.0, m_state_GeV="charmonium",
+                          y_sign_for_xA=-1)   # default: x_A ~ e^{-y}
+epps8 = GluonEPPSProvider(EPPS21Ratio(A=208, path="../input/npdf/nPDFs"),
+                          sqrt_sNN_GeV=8160.0, m_state_GeV="charmonium",
+                          y_sign_for_xA=-1)
+
+# Glauber systems (for centrality)
+gl5 = OpticalGlauber(SystemSpec("pA", SQRTS["5.02"], A=208, sigma_nn_mb=SIG_NN["5.02"]))
+gl8 = OpticalGlauber(SystemSpec("pA", SQRTS["8.16"], A=208, sigma_nn_mb=SIG_NN["8.16"]))
+
+## Sigma_pA/sigma_pp (49 sets)
+ana = RpAAnalysis()
+
+sys5 = NPDFSystem.from_folder(P5_DIR, kick="pp", name="p+Pb 5.02 TeV")
+r5   = ana.compute_rpa_grid(sys5.df_pp, sys5.df_pa, sys5.df_errors, pt_shift_min=0, shift_if_r_below=0.0, lowpt_policy="drop", join="intersect")
+sys8 = NPDFSystem.from_folder(P8_DIR, kick="pp", name="p+Pb 8.16 TeV")
+r8   = ana.compute_rpa_grid(sys8.df_pp, sys8.df_pa, sys8.df_errors, pt_shift_min=0, shift_if_r_below=0.0, lowpt_policy="drop", join="intersect")
+systems = [("5.02", sys5, r5), ("8.16", sys8, r8)]
+
+[Glauber] TA(r) LUT: A=208 d=0.549 r≤50 fm, dr=0.02, z≤50 fm
+[Glauber] ∫T_A d^2x ≈ 208.483 (target A=208)
+[Glauber] Tabulating T_AA(b), T_pA(b)…
+[Glauber] σ_tot^AA ≈ 7718.37 mb, σ_tot^pA ≈ 1909.03 mb
+[Glauber] TA(r) LUT: A=208 d=0.549 r≤50 fm, dr=0.02, z≤50 fm
+[Glauber] ∫T_A d^2x ≈ 208.483 (target A=208)
+[Glauber] Tabulating T_AA(b), T_pA(b)…
+[Glauber] σ_tot^AA ≈ 7757.76 mb, σ_tot^pA ≈ 1925.90 mb
+
+
+def mean_b_for_bin(glauber, c0, c1):
+    # Use ᾱ(c0–c1) → invert to b̄ by shooting; or simply take the midpoint in b if you already tabulate.
+    # Here we just take the mid-percentile in b (good, fast proxy).
+    p_mid = 0.5 * (c0 + c1) / 100.0
+    return glauber.b_from_percentile(p_mid, kind="pA")
+    
+b_avgs_5 = {f"{a}-{b}%": mean_b_for_bin(gl5, a, b) for (a,b) in cent_bins}
+b_avgs_8 = {f"{a}-{b}%": mean_b_for_bin(gl8, a, b) for (a,b) in cent_bins}
+print(b_avgs_5)
+print(b_avgs_8)
+
+{'0-20%': 2.4153245017802605, '20-40%': 4.219762074191607, '40-60%': 5.46238787090888, '60-80%': 6.4814819740443985, '80-100%': 7.522868495459839}
+{'0-20%': 2.4260661113157966, '20-40%': 4.238492821559056, '40-60%': 5.486707787744164, '60-80%': 6.5088720266515985, '80-100%': 7.547943424943761}
+
+### Gluon Ratio S_A(y,pT)
+# 1) Define variables
+y = np.linspace(-5, 5, 21)
+pt = 5.0
+
+plt.figure(figsize=(5.4, 3.6), dpi=180)
+
+# 4) Loop over all set_ids from 1 to 49
+for i in range(1, 50):
+    # Calculate SA for the current set_id
+    SA = epps8.SA_ypt_set(y, np.full_like(y, pt), set_id=i)
+    
+    if i == 1:
+        # Plot set 1 (Central) darker and thicker
+        plt.plot(y, SA, lw=2.5, color='black', label="Central (Set 1)", zorder=50)
+    else:
+        # Plot other sets (2-49) lighter and thinner
+        # Add a label only for the first "other" set (i=2) for the legend
+        label = "Other Sets (2-49)" if i == 2 else None
+        plt.plot(y, SA, lw=1, color='gray', alpha=0.7, label=label, zorder=10)
+    plt.axhline(1.0, color='red', ls='--', lw=1.2, label=r"$R = 1$" if i == 1 else None)
+# 5) Add labels and legend
+plt.text(-2, 1.1, rf'$p_T = {pt}$ GeV', fontsize=12, color='blue')
+plt.xlabel(r"$y$")
+plt.ylabel(r"$S_{A}(y,p_T)$")
+plt.legend(frameon=True)
+plt.tight_layout()
+
+## SAWS (B,Y,Pt)
+## 8 TeV
+# 1) Define variables
+b_list  = np.linspace(0,10, 21)
+pT = 5.0
+y = -2.5
+
+plt.figure(figsize=(5.4, 3.6), dpi=180)
+
+# 4) Loop over all set_ids from 1 to 49
+for i in range(1, 50):
+    # Calculate SAWS for the current set_id=i
+    SAWS = np.array([epps8.SAWS_ypt_b_set(y, pT, b, set_id=i) for b in b_list])
+    
+    if i == 1:
+        # Plot set 1 (Central) darker and thicker
+        plt.plot(b_list, SAWS, lw=2.5, color='black', label="Central (Set 1)", zorder=50)
+    else:
+        # Plot other sets (2-49) lighter and thinner
+        # Add a label only for the first "other" set (i=2) for the legend
+        label = "Other Sets (2-49)" if i == 2 else None
+        plt.plot(b_list, SAWS, lw=1, color='gray', alpha=0.7, label=label, zorder=10)
+# 5) Add labels and legend
+plt.text(6, 0.9, rf'$p_T = {pT}$ GeV', fontsize=12, color='blue')
+plt.xlabel(r"$b$ [fm]")
+plt.ylabel(r"$S_{AWS}(b,y,p_T)$")
+plt.legend(frameon=False)
+plt.tight_layout()
+
+
+
+# # S_AWS(b; y, pT) vs b at fixed y, pT ---hessian band----
+b_list  = np.linspace(0,10, 21)
+pT = 0.25
+y = -2.5
+SAWS_c = np.array([epps8.SAWS_ypt_b_set(y, pT, b, set_id=1) for b in b_list])
+band_list = [epps8.SAWS_band_ypt_b(y, pT, b, cl=68.0) for b in b_list]
+SAWS_lo, SAWS_hi = np.array(band_list).T
+plt.text(8, 0.9, rf'$p_T = {pT}$ GeV', fontsize=12, color='blue')
+plt.fill_between(b_list, SAWS_lo, SAWS_hi, alpha=0.25, label="EPPS21 Error Sets")
+plt.plot(b_list, SAWS_c, lw=2, label="Central")
+plt.xlabel(r"$b$"); plt.ylabel(r"$S_{A,\mathrm{WS}}(y,p_T;b)$"); plt.legend(frameon=False); plt.tight_layout()
+
+# --- helpers: raw per-member R_pA lines with faded error sets (NO bands) ---
+def _plot_raw_members_vs_y(ax, sysX, pt_min, color, central_label, weight_mode="pa"):
+    # common grid & members
+    base, r0, M = ana.compute_rpa_members(sysX.df_pp, sysX.df_pa, sysX.df_errors, join="intersect", lowpt_policy="drop", pt_shift_min=0, shift_if_r_below=0.0)
+
+    # weights aligned to base
+    rgrid_min = base.copy()
+    rgrid_min["r_central"] = r0
+    wtab = RpAAnalysis._make_weight_table(rgrid_min, sysX.df_pa, df_pp=sysX.df_pp, mode=weight_mode)
+    wfull = wtab["w"].to_numpy()
+
+    yvals = np.sort(base["y"].unique())
+    yb = base["y"].to_numpy()
+    pb = base["pt"].to_numpy()
+
+    # ---- central line
+    ys_c, Rs_c = [], []
+    for yy in yvals:
+        m = (yb == yy) & (pb >= float(pt_min))
+        if not np.any(m): 
+            continue
+        R = r0[m]
+        w = wfull[m]
+        g = (w > 0) & np.isfinite(R)
+        if np.any(g):
+            ys_c.append(float(yy))
+            Rs_c.append(float(np.sum(R[g]*w[g]) / np.sum(w[g])))
+    if len(ys_c) >= 2:
+        ax.plot(ys_c, Rs_c, "-", linewidth=2.0, color=color, label=central_label, zorder=5)
+
+    # ---- error-member lines (faded)
+    if M.size:
+        for j in range(M.shape[0]):
+            ys_j, Rs_j = [], []
+            for yy in yvals:
+                m = (yb == yy) & (pb >= float(pt_min))
+                if not np.any(m):
+                    continue
+                Rj = M[j, m]
+                w  = wfull[m]
+                g = (w > 0) & np.isfinite(Rj)
+                if np.any(g):
+                    ys_j.append(float(yy))
+                    Rs_j.append(float(np.sum(Rj[g]*w[g]) / np.sum(w[g])))
+            if len(ys_j) >= 2:
+                ax.plot(ys_j, Rs_j, "-", linewidth=0.8, alpha=0.18, color=color, zorder=3)
+
+def _plot_raw_members_vs_pt(ax, sysX, y_min, y_max, color, central_label, weight_mode="pa"):
+    # common grid & members (aligned base order)
+    base, r0, M = ana.compute_rpa_members(sysX.df_pp, sysX.df_pa, sysX.df_errors, join="intersect",pt_shift_min=0, shift_if_r_below=0.0)
+
+    rgrid_min = base.copy()
+    rgrid_min["r_central"] = r0
+    wtab = RpAAnalysis._make_weight_table(rgrid_min, sysX.df_pa, df_pp=sysX.df_pp, mode=weight_mode)
+    w_full = base.merge(wtab, on=["y","pt"], how="left")["w"].to_numpy()
+
+    yb = base["y"].to_numpy(); pb = base["pt"].to_numpy()
+    mY = (yb >= float(y_min)) & (yb <= float(y_max))
+    pts = np.sort(np.unique(pb[mY]))
+
+    # central line
+    Rc = []
+    for p in pts:
+        m = mY & (pb == p)
+        if not np.any(m):
+            Rc.append(np.nan); continue
+        R = r0[m]; w = w_full[m]
+        g = (w > 0) & np.isfinite(R)
+        Rc.append(float(np.sum(R[g]*w[g]) / np.sum(w[g])) if np.any(g) else np.nan)
+    ax.plot(pts, Rc, "-", linewidth=2.0, color=color, label=central_label, zorder=5)
+
+    # members → individual thin lines (faded)
+    if M.size:
+        for j in range(M.shape[0]):
+            Rj_all = []
+            for p in pts:
+                m = mY & (pb == p)
+                if not np.any(m):
+                    Rj_all.append(np.nan); continue
+                Rj = M[j, m]; w = w_full[m]
+                g = (w > 0) & np.isfinite(Rj)
+                Rj_all.append(float(np.sum(Rj[g]*w[g]) / np.sum(w[g])) if np.any(g) else np.nan)
+            ax.plot(pts, np.asarray(Rj_all, float), "-", linewidth=0.8, alpha=0.18, color=color, zorder=3)
+
+
+# ===== EXTRA FIGURE (LINES): raw R_pA_mb_k vs y (top: pT thresholds) and vs pT (bottom: y-windows) =====
+fig2 = plt.figure(figsize=(12.5, 9.0), constrained_layout=True)
+sft2, sfb2 = fig2.subfigures(2, 1, height_ratios=[1.0, 1.2])
+
+# --- TOP: vs y at two pT thresholds ---
+axes2_y = sft2.subplots(1, 2, sharey=True)
+for ax, (ptmin, note) in zip(
+    axes2_y,
+    [(2.5, r"$p_T \geq 2.5$ GeV"), (1.0, r"$p_T \geq 1.0$ GeV")]
+):
+    _plot_raw_members_vs_y(ax, sys5, ptmin, colors["5.02"], "5.02 TeV")
+    _plot_raw_members_vs_y(ax, sys8, ptmin, colors["8.16"], "8.16 TeV")
+    style_axes(ax, "y", r"$R_{pA}$", grid=False)
+    ax.set_xlim(-5.0, 5.0)
+    ax.set_ylim(0.2, 1.2)
+    note_box(ax, note, loc="upper center")
+# single legend for top
+h2t, l2t = axes2_y[0].get_legend_handles_labels()
+sft2.legend(h2t, l2t, loc="upper right", frameon=False, ncol=2, fontsize=11)
+
+# --- BOTTOM: vs pT in three y-windows (all member lines) ---
+y_windows = [(-1.93, 1.93, "-1.93 < y < 1.93"),
+             ( 1.5 , 4.0 , "1.5 < y < 4.0"),
+             (-5.0 , -2.5, "-5.0 < y < -2.5")]
+
+axes2_pt = sfb2.subplots(1, len(y_windows), sharex=True, sharey=True)
+if len(y_windows) == 1:
+    axes2_pt = [axes2_pt]
+
+for ax, (ymin, ymax, name) in zip(axes2_pt, y_windows):
+    _plot_raw_members_vs_pt(ax, sys5, ymin, ymax, colors["5.02"], "5.02 TeV")
+    _plot_raw_members_vs_pt(ax, sys8, ymin, ymax, colors["8.16"], "8.16 TeV")
+    style_axes(ax, r"$p_T$ [GeV]", r"$R_{pA}$", grid=False)
+    ax.set_xlim(0, 20)
+    ax.set_ylim(0.35, 1.25)
+    note_box(ax, fr"{name}", loc="lower right")
+# single legend for bottom
+h2b, l2b = axes2_pt[0].get_legend_handles_labels()
+sfb2.legend(h2b, l2b, loc="upper center", frameon=False, ncol=2, fontsize=11)
+
+fig2.savefig(f"{OUTDIR}/rpa_raw_members_vs_y_ptpanels.pdf", bbox_inches="tight")
+plt.show()
+
+
+IMPORTANT:
+UPTO HERE EVERYTHING IS GOOD!
+
+ 
+
+
+# --- BINNING WEIGHTS: choose one of: "pa@y0", "pa@local", "pp@local", "SA@y0", "flat"
+WEIGHT_MODE   = "pp@local"   # your most stable choice
+Y_REF         = 0.0       # used for *@y0 modes
+
+# --- σ-weight truncation in low pT (acts on the WEIGHTS only, not on R itself)
+PT_FLOOR_W    = 1.0       # for pT < PT_FLOOR_W, replace weight by weight at first pT ≥ PT_FLOOR_W (same y-slab)
+Y_GUARD_MAX   = 0.0       # only apply truncation for y ≤ Y_GUARD_MAX (target backward/mid problems)
+WINSOR        = (0.98, 2.0)  # cap weights to (2.0 × 98th percentile). Set to None to disable.
+
+# --- Range knobs
+PT_RANGE_AVG  = (1.5, 20.0)    # pT range used in R(y) binning
+Y_WINDOWS     = [(-4.46,-2.96,"Backward"), (-1.37,0.43,"Mid"), (2.03,3.53,"Forward")]
+P_EDGES       = np.arange(0.0, 15.0+2.5, 2.5)
+Y_EDGES       = np.arange(-5.0, 5.0+0.5, 0.5)
+
+COLORS = {"5.02":"tab:blue", "8.16":"tab:red"}
+LSTYLE = {"5.02":"-",        "8.16":"--"}
+
+# --- σ-members on the common grid (pairwise Hessian order preserved)
+ana = RpAAnalysis()
+
+# small low-pT hardening *on R itself* (optional). If you want raw σ-ratio, keep "drop"/pt_shift_min=0.
+base5, r0_5, M5 = ana.compute_rpa_members(sys5.df_pp, sys5.df_pa, sys5.df_errors,
+                                          join="intersect", lowpt_policy="shift",
+                                          pt_shift_min=PT_FLOOR_W, shift_if_r_below=0.0)
+base8, r0_8, M8 = ana.compute_rpa_members(sys8.df_pp, sys8.df_pa, sys8.df_errors,
+                                          join="intersect", lowpt_policy="shift",
+                                          pt_shift_min=PT_FLOOR_W, shift_if_r_below=0.0)
+
+# --- Build K(b) central + members by looping set_id (guaranteed alignment 2..49)
+def K0_KM_from_provider(gluon, base_df, b_val):
+    yy = base_df["y"].to_numpy()
+    pp = base_df["pt"].to_numpy()
+
+    # central
+    SA0   = gluon.SA_ypt_set(yy, pp, set_id=1)
+    SAWS0 = gluon.SAWS_ypt_b_set(yy, pp, b_val, set_id=1)
+    K0    = SAWS0 / np.clip(SA0, 1e-12, None)                     # (N,)
+
+    # members 2..49
+    KM = []
+    for sid in range(2, 50):
+        SAm   = gluon.SA_ypt_set(yy, pp, set_id=sid)
+        SAWSm = gluon.SAWS_ypt_b_set(yy, pp, b_val, set_id=sid)
+        KM.append(SAWSm / np.clip(SAm, 1e-12, None))
+    KM = np.stack(KM, axis=0)                                      # (48, N)
+    return K0, KM
+
+def K0_KM_avg_over_bin(gluon, base_df, glauber, c0, c1, nb=21):
+    ps = np.linspace(c0/100.0, c1/100.0, nb)
+    bgrid = np.array([glauber.b_from_percentile(p, kind="pA") for p in ps])
+    K0s, KMs = [], []
+    for b in bgrid:
+        K0, KM = K0_KM_from_provider(gluon, base_df, b)  # your existing helper
+        K0s.append(K0); KMs.append(KM)
+    K0 = np.average(np.stack(K0s, axis=0), axis=0)
+    KM = np.average(np.stack(KMs, axis=0), axis=0)
+    return K0, KM
+
+# --- Fuse σ and K(b) ⇒ 49 sets per centrality, per energy
+def fuse_sigma_and_K(base_df, r0, M, K0, KM):
+    r0b = r0 * K0                        # central: (N,) elementwise
+    Mb  = M  * KM                        # members: (48,N) * (48,N) elementwise
+    D   = Mb[0::2,:] - Mb[1::2,:]
+    h   = 0.5*np.sqrt(np.sum(D*D, axis=0))
+    out = base_df[["y","pt"]].copy()
+    out["r_central"] = r0b
+    out["r_lo"]      = r0b - h
+    out["r_hi"]      = r0b + h
+    # keep all 48 member columns for downstream “bin then Hessian”
+    for j in range(Mb.shape[0]):
+        out[f"r_mem_{j+1:03d}"] = Mb[j]
+    return out
+
+def hess_width_from_members(mem_vec_48):
+    D = mem_vec_48[0::2] - mem_vec_48[1::2]
+    return 0.5 * np.sqrt(np.sum(D*D))
+
+
+# Glauber ⟨b⟩ for each centrality tag
+# cent_bins = [(0,20),(20,40),(40,60),(60,80),(80,100)]
+cent_bins = [(40,60),(60,80),(80,100)]
+b_avgs_5  = {f"{a}-{b}%": mean_b_for_bin(gl5, a, b) for (a,b) in cent_bins}
+b_avgs_8  = {f"{a}-{b}%": mean_b_for_bin(gl8, a, b) for (a,b) in cent_bins}
+
+# Make the per-centrality 49-set tables
+df49_by_cent_5, df49_by_cent_8 = {}, {}
+
+for tag, b in b_avgs_5.items():
+    K0, KM = K0_KM_from_provider(epps5, base5, b)
+    df49_by_cent_5[tag] = fuse_sigma_and_K(base5, r0_5, M5, K0, KM)
+
+for tag, b in b_avgs_8.items():
+    K0, KM = K0_KM_from_provider(epps8, base8, b)
+    df49_by_cent_8[tag] = fuse_sigma_and_K(base8, r0_8, M8, K0, KM)
+
+
+def _get_weights(sub, sysX, etag, mode=WEIGHT_MODE, *,
+                 y_ref=Y_REF, pt_floor_w=PT_FLOOR_W,
+                 y_guard_max=Y_GUARD_MAX, winsor=WINSOR):
+    """
+    Returns normalized weights wn for the given sub-DF.
+    Uses the same logic you already have, but requires sysX & etag (so no NameError).
+    """
+    # base weights
+    if mode == "flat":
+        w = np.ones(len(sub), float)
+    
+    # σ_pA(y_ref, pt) as function of pt only
+    elif mode == "pa@y0":
+        lut = {}
+        for ptv, grp in sysX.df_pa.groupby("pt"):
+            ys = grp["y"].to_numpy(); vals = grp["val"].to_numpy()
+            j  = int(np.argmin(np.abs(ys - y_ref)))
+            lut[float(ptv)] = float(vals[j])
+        w = sub["pt"].map(lambda v: lut.get(float(v), 0.0)).to_numpy()
+    
+    # σ_pA(y, pt) at each local point
+    elif mode == "pa@local":
+        lut = {(float(r.y), float(r.pt)): float(r.val) for r in sysX.df_pa.itertuples()}
+        w = np.array([lut.get((float(r.y), float(r.pt)), 0.0) for r in sub.itertuples()], float)
+
+    # σ_pp(y, pt) at each local point
+    elif mode == "pp@local":
+        lut = {(float(r.y), float(r.pt)): float(r.val) for r in sysX.df_pp.itertuples()}
+        w = np.array([lut.get((float(r.y), float(r.pt)), 0.0) for r in sub.itertuples()], float)
+
+    # nPDF-only weight S_A(y_ref,pt) from gluon provider
+    elif mode == "SA@y0":
+        # provider from energy tag
+        gprov = epps5 if etag == "5.02" else epps8
+        puniq = np.sort(sub["pt"].unique())
+        SAref = gprov.SA_ypt_set(np.full_like(puniq, y_ref), puniq, set_id=1)
+        lut   = {float(p): float(v) for p, v in zip(puniq, SAref)}
+        w = sub["pt"].map(lambda v: lut.get(float(v), 0.0)).to_numpy()
+
+    else:
+        raise ValueError(f"Unknown WEIGHT_MODE={mode}")
+
+    # include centrality fraction if present (MB stacks)
+    if "wcent" in sub.columns:
+        w = w * sub["wcent"].to_numpy()
+
+    # low-pT truncation (not for flat/SA)
+    if (pt_floor_w is not None) and (mode not in ("flat","SA@y0")) and len(sub):
+        mask_bad = (sub["pt"].to_numpy() < float(pt_floor_w))
+        if y_guard_max is not None:
+            mask_bad &= (sub["y"].to_numpy() <= float(y_guard_max))
+        if np.any(mask_bad):
+            src = sysX.df_pa if mode.startswith("pa@") else sysX.df_pp
+            for yy in np.unique(sub.loc[mask_bad, "y"].to_numpy()):
+                cand = src[(src["y"] == float(yy)) & (src["pt"] >= float(pt_floor_w))].sort_values("pt")
+                if len(cand):
+                    w[(sub["y"].to_numpy()==yy) & mask_bad] = float(cand["val"].iloc[0])
+
+    # winsorization
+    if (winsor is not None) and np.any(w > 0):
+        cap = float(winsor[1]) * np.nanquantile(w[w > 0], float(winsor[0]))
+        w   = np.clip(w, 0.0, cap)
+
+    # normalize
+    wsum = np.sum(w)
+    wn   = (w/wsum) if (wsum > 0) else np.ones_like(w)/max(len(w),1)
+    return wn
+    
+    
+
+# panels: 5 centralities + MB
+Y_NCOLS = 3  # change to 2/3/4 as you like
+tags_y = [f"{a}-{b}%" for (a,b) in cent_bins] + ["MB"]
+n_pan   = len(tags_y)
+n_rows  = int(np.ceil(n_pan / Y_NCOLS))
+n_cols  = Y_NCOLS
+
+fig, axes = plt.subplots(n_rows, n_cols, figsize=(5.2*n_cols, 2.9*n_rows),
+                         dpi=DPI, sharex=True, sharey=True)
+axes = np.atleast_1d(axes).ravel()
+
+handles_ = []
+labels_  = []
+
+for ip, tag in enumerate(tags_y):
+    ax = axes[ip]
+
+    for ETAG, dfmap, sysX in [("5.02", df49_by_cent_5, sys5), ("8.16", df49_by_cent_8, sys8)]:
+        # source table (centrality or MB stack)
+        if tag != "MB":
+            df49 = dfmap[tag].copy()
+            df49["wcent"] = 1.0
+        else:
+            rows = []
+            for (a,b) in cent_bins:
+                tmp = dfmap[f"{a}-{b}%"].copy()
+                tmp["wcent"] = (b-a)/100.0
+                rows.append(tmp)
+            df49 = pd.concat(rows, ignore_index=True)
+
+        # bin along y
+        y_left, r0_band, rlo_band, rhi_band = [], [], [], []
+        for yl, yr in zip(Y_EDGES[:-1], Y_EDGES[1:]):
+            sub = df49[(df49["y"]>=yl) & (df49["y"]<yr) &
+                       (df49["pt"]>=PT_RANGE_AVG[0]) & (df49["pt"]<=PT_RANGE_AVG[1])].copy()
+            if sub.empty:
+                y_left.append(yl); r0_band.append(np.nan); rlo_band.append(np.nan); rhi_band.append(np.nan); continue
+
+            # weights (your inline block, unchanged behavior)
+            mode = WEIGHT_MODE
+            if mode == "flat":
+                w = np.ones(len(sub), float)
+            elif mode == "pa@y0":
+                lut = {}
+                for ptv, grp in sysX.df_pa.groupby("pt"):
+                    ys=grp["y"].to_numpy(); vals=grp["val"].to_numpy()
+                    j = int(np.argmin(np.abs(ys - Y_REF)))
+                    lut[float(ptv)] = float(vals[j])
+                w = sub["pt"].map(lambda v: lut.get(float(v), 0.0)).to_numpy()
+            elif mode == "pa@local":
+                lut = {(float(r.y),float(r.pt)):float(r.val) for r in sysX.df_pa.itertuples()}
+                w = np.array([lut.get((float(r.y),float(r.pt)),0.0) for r in sub.itertuples()], float)
+            elif mode == "pp@local":
+                lut = {(float(r.y),float(r.pt)):float(r.val) for r in sysX.df_pp.itertuples()}
+                w = np.array([lut.get((float(r.y),float(r.pt)),0.0) for r in sub.itertuples()], float)
+            elif mode == "SA@y0":
+                puniq = np.sort(sub["pt"].unique())
+                gprov = epps5 if ETAG=="5.02" else epps8
+                SAref = gprov.SA_ypt_set(np.full_like(puniq, Y_REF), puniq, set_id=1)
+                lut   = {float(p):float(v) for p,v in zip(puniq, SAref)}
+                w     = sub["pt"].map(lambda v: lut.get(float(v), 0.0)).to_numpy()
+            else:
+                raise ValueError
+
+            # include centrality fraction for MB panels
+            w *= sub["wcent"].to_numpy()
+
+            # low-pT σ-weight hygiene (keeps peripheral y-dip from spiky weights)
+            if PT_FLOOR_W is not None and mode not in ("flat","SA@y0"):
+                mask_bad = (sub["pt"].to_numpy() < float(PT_FLOOR_W))
+                if Y_GUARD_MAX is not None:
+                    mask_bad &= (sub["y"].to_numpy() <= float(Y_GUARD_MAX))
+                if np.any(mask_bad):
+                    src = sysX.df_pa if mode.startswith("pa@") else sysX.df_pp
+                    for yy in np.unique(sub.loc[mask_bad,"y"].to_numpy()):
+                        cand = src[(src["y"]==float(yy)) & (src["pt"]>=float(PT_FLOOR_W))].sort_values("pt")
+                        if len(cand): w[(sub["y"].to_numpy()==yy)&mask_bad] = float(cand["val"].iloc[0])
+
+            if (WINSOR is not None) and np.any(w>0):
+                cap = float(WINSOR[1]) * np.nanquantile(w[w>0], float(WINSOR[0]))
+                w   = np.clip(w, 0.0, cap)
+
+            wn = (w/np.sum(w)) if np.sum(w)>0 else np.ones_like(w)/len(w)
+
+            r0  = np.sum(wn * sub["r_central"].to_numpy())
+            mem = [np.sum(wn * sub[c].to_numpy()) for c in sub.columns if c.startswith("r_mem_")]
+            mem = np.asarray(mem, float)
+            D   = mem[0::2] - mem[1::2]
+            h   = 0.5*np.sqrt(np.sum(D*D))
+
+            y_left.append(yl); r0_band.append(r0); rlo_band.append(r0-h); rhi_band.append(r0+h)
+
+        # step bands
+        x  = np.array(y_left, float)
+        xC = np.r_[x, x[-1]+(x[1]-x[0])]
+        yC = np.r_[r0_band, r0_band[-1]]
+        yL = np.r_[rlo_band, rlo_band[-1]]
+        yH = np.r_[rhi_band, rhi_band[-1]]
+
+        ln, = ax.step(xC, yC, where="post", color=COLORS[ETAG], ls=LSTYLE[ETAG], lw=2.0, label=f"{ETAG} TeV")
+        ax.fill_between(xC, yL, yH, step="post", color=COLORS[ETAG], alpha=ALPHA_BAND)
+        handles_.append(ln); labels_.append(f"{ETAG} TeV")
+
+        # optional CSV dump per panel/energy
+        if SAVE_CSV:
+            out = pd.DataFrame(dict(y_left=x, y_right=xC[:-1]+(x[1]-x[0]), r_central=yC[:-1], r_lo=yL[:-1], r_hi=yH[:-1]))
+            out.to_csv(OUTDIR/f"data_rpa_vs_y_{tag.replace('%','pct')}_{ETAG.replace('.','p')}TeV.csv", index=False)
+
+    # axis cosmetics + in-axis note (centrality tag or MB)
+    beautify_axis(ax, xlabel="y", ylabel=r"$R_{pA}$",
+                  xlim=(Y_EDGES[0], Y_EDGES[-1]), ylim=(0.35, 1.25))
+    put_note(ax, tag, loc="lower left")
+
+# remove any empty axes
+for k in range(n_pan, len(axes)):
+    fig.delaxes(axes[k])
+
+# single common legend (unique handles)
+uniq = {}
+for h,l in zip(handles_, labels_):
+    uniq[l] = h
+fig.legend(list(uniq.values()), list(uniq.keys()), loc="upper center", ncol=2, frameon=False)
+
+plt.subplots_adjust(top=0.90, hspace=0.25, wspace=0.15)
+if SAVE_PDF:
+    fig.savefig(OUTDIR/f"rpa_vs_y_panels_{WEIGHT_MODE}.pdf", bbox_inches="tight")
+plt.show()
+
+
+## RpA vs pT in different centrality
+## Rpa vs pT
+def plot_rpa_vs_pT_panels_window(y0, y1, name,
+                                 *, ncols=3,
+                                 ylim=(0.35, 1.25),
+                                 save_pdf=SAVE_PDF, save_csv=SAVE_CSV):
+
+    tags_pt = [f"{a}-{b}%" for (a,b) in cent_bins] + ["MB"]
+    n_pan   = len(tags_pt)
+    n_cols  = ncols
+    n_rows  = int(np.ceil(n_pan / n_cols))
+
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(5.2*n_cols, 2.9*n_rows),
+                             dpi=DPI, sharex=True, sharey=True)
+    axes = np.atleast_1d(axes).ravel()
+
+    handles_, labels_ = [], []
+
+    for ip, tag in enumerate(tags_pt):
+        ax = axes[ip]
+
+        for ETAG, dfmap, sysX in [("5.02", df49_by_cent_5, sys5),
+                                  ("8.16", df49_by_cent_8, sys8)]:
+
+            # pick centrality or MB stack
+            if tag != "MB":
+                df49 = dfmap[tag].copy(); df49["wcent"] = 1.0
+            else:
+                rows=[]
+                for (a,b) in cent_bins:
+                    tmp = dfmap[f"{a}-{b}%"].copy()
+                    tmp["wcent"] = (b-a)/100.0
+                    rows.append(tmp)
+                df49 = pd.concat(rows, ignore_index=True)
+
+            p_left, r0_band, rlo_band, rhi_band = [], [], [], []
+            for pl, pr in zip(P_EDGES[:-1], P_EDGES[1:]):
+                sub = df49[(df49["pt"]>=pl) & (df49["pt"]<pr) &
+                           (df49["y"]>=y0) & (df49["y"]<=y1)].copy()
+                if sub.empty:
+                    p_left.append(pl); r0_band.append(np.nan); rlo_band.append(np.nan); rhi_band.append(np.nan); continue
+
+                # NEW: use helper (fixes sysX scoping & keeps logic identical)
+                wn = _get_weights(sub, sysX, ETAG)
+
+                r0  = float(np.sum(wn * sub["r_central"].to_numpy()))
+                mem = np.array([np.sum(wn * sub[c].to_numpy()) for c in sub.columns if c.startswith("r_mem_")], float)
+                D   = mem[0::2] - mem[1::2]
+                h   = 0.5*np.sqrt(np.sum(D*D))
+
+                p_left.append(pl); r0_band.append(r0); rlo_band.append(r0-h); rhi_band.append(r0+h)
+
+            x  = np.array(p_left, float)
+            xC = np.r_[x, x[-1]+(x[1]-x[0])]
+            yC = np.r_[r0_band, r0_band[-1]]
+            yL = np.r_[rlo_band, rlo_band[-1]]
+            yH = np.r_[rhi_band, rhi_band[-1]]
+
+            ln, = ax.step(xC, yC, where="post", color=COLORS[ETAG], ls=LSTYLE[ETAG], lw=2.0, label=f"{ETAG} TeV")
+            ax.fill_between(xC, yL, yH, step="post", color=COLORS[ETAG], alpha=ALPHA_BAND)
+            handles_.append(ln); labels_.append(f"{ETAG} TeV")
+
+            if save_csv:
+                out = pd.DataFrame(dict(pt_left=x, pt_right=xC[:-1]+(x[1]-x[0]),
+                                        r_central=yC[:-1], r_lo=yL[:-1], r_hi=yH[:-1]))
+                out.to_csv(OUTDIR/f"data_rpa_vs_pT_{tag.replace('%','pct')}_{name}_{ETAG.replace('.','p')}TeV.csv".replace(' ','_'), index=False)
+
+        beautify_axis(ax, xlabel=r"$p_T$ [GeV]", ylabel=r"$R_{pA}$",
+                      xlim=(P_EDGES[0], P_EDGES[-1]), ylim=ylim)
+        put_note(ax, tag, loc="upper right")
+
+    # strip empty axes
+    for k in range(n_pan, len(axes)):
+        fig.delaxes(axes[k])
+
+    # annotate once
+    put_note(axes[0], f"{name}", loc="upper left")
+    put_note(axes[0], rf"$p_T\in[{PT_RANGE_AVG[0]},\,{PT_RANGE_AVG[1]}]$ GeV", loc="lower left")
+
+    # common legend
+    uniq = {}
+    for h,l in zip(handles_, labels_): uniq[l] = h
+    fig.legend(list(uniq.values()), list(uniq.keys()),
+               loc="upper center", ncol=3, frameon=False)
+
+    plt.subplots_adjust(top=0.90, hspace=0.25, wspace=0.15)
+    if save_pdf:
+        fig.savefig(OUTDIR / f"rpa_vs_pT_panels_{name.replace(' ','_')}_{WEIGHT_MODE}.pdf",
+                    bbox_inches="tight")
+    plt.show()
+
+
+fig, axes = plt.subplots(1, 3, figsize=(12.5,3.6), dpi=DPI, sharey=True)
+cent_tags = [f"{a}-{b}%" for (a,b) in cent_bins]
+cent_left = [a for (a,_) in cent_bins]
+wcent     = np.array([(b-a)/100.0 for (a,b) in cent_bins], float)
+wcent    /= wcent.sum()
+
+for ax, (y0,y1,name) in zip(axes, Y_WINDOWS):
+    handles_, labels_ = [], []
+
+    for ETAG, dfmap, sysX in [("5.02", df49_by_cent_5, sys5), ("8.16", df49_by_cent_8, sys8)]:
+        Rc_list, Rlo_list, Rhi_list = [], [], []
+        mem_means_by_bin = []  # collect member means per centrality for MB combination
+
+        for tag in cent_tags:
+            g = dfmap[tag]
+            sub = g[(g["y"]>=y0) & (g["y"]<=y1) &
+                    (g["pt"]>=PT_RANGE_AVG[0]) & (g["pt"]<=PT_RANGE_AVG[1])].copy()
+            if sub.empty:
+                Rc_list.append(np.nan); Rlo_list.append(np.nan); Rhi_list.append(np.nan)
+                mem_means_by_bin.append(np.full(48, np.nan))
+                continue
+
+            # weights (same, no change)
+            mode = WEIGHT_MODE
+            if mode == "flat":
+                w = np.ones(len(sub), float)
+            elif mode == "pa@y0":
+                lut={}
+                for ptv, grp in sysX.df_pa.groupby("pt"):
+                    ys=grp["y"].to_numpy(); vals=grp["val"].to_numpy()
+                    j=int(np.argmin(np.abs(ys - Y_REF))); lut[float(ptv)]=float(vals[j])
+                w=sub["pt"].map(lambda v: lut.get(float(v),0.0)).to_numpy()
+            elif mode == "pa@local":
+                lut={(float(r.y),float(r.pt)):float(r.val) for r in sysX.df_pa.itertuples()}
+                w=np.array([lut.get((float(r.y),float(r.pt)),0.0) for r in sub.itertuples()], float)
+            elif mode == "pp@local":
+                lut={(float(r.y),float(r.pt)):float(r.val) for r in sysX.df_pp.itertuples()}
+                w=np.array([lut.get((float(r.y),float(r.pt)),0.0) for r in sub.itertuples()], float)
+            elif mode == "SA@y0":
+                puniq=np.sort(sub["pt"].unique())
+                gprov=epps5 if ETAG=="5.02" else epps8
+                SAref=gprov.SA_ypt_set(np.full_like(puniq,Y_REF), puniq, set_id=1)
+                lut={float(p):float(v) for p,v in zip(puniq, SAref)}
+                w=sub["pt"].map(lambda v: lut.get(float(v),0.0)).to_numpy()
+            else:
+                raise ValueError
+
+            if PT_FLOOR_W is not None and mode not in ("flat","SA@y0"):
+                mask_bad=(sub["pt"].to_numpy()<float(PT_FLOOR_W))
+                if Y_GUARD_MAX is not None:
+                    mask_bad &= (sub["y"].to_numpy() <= float(Y_GUARD_MAX))
+                if np.any(mask_bad):
+                    src=sysX.df_pa if mode.startswith("pa@") else sysX.df_pp
+                    for yy in np.unique(sub.loc[mask_bad,"y"].to_numpy()):
+                        cand=src[(src["y"]==float(yy))&(src["pt"]>=float(PT_FLOOR_W))].sort_values("pt")
+                        if len(cand):
+                            w[(sub["y"].to_numpy()==yy)&mask_bad] = float(cand["val"].iloc[0])
+            if (WINSOR is not None) and np.any(w>0):
+                cap=float(WINSOR[1])*np.nanquantile(w[w>0], float(WINSOR[0]))
+                w=np.clip(w,0.0,cap)
+
+            wn = (w/np.sum(w)) if np.sum(w)>0 else np.ones_like(w)/len(w)
+
+            r0  = np.sum(wn * sub["r_central"].to_numpy())
+            mem = np.array([np.sum(wn * sub[c].to_numpy()) for c in sub.columns if c.startswith("r_mem_")], float)
+            D   = mem[0::2] - mem[1::2]
+            h   = 0.5*np.sqrt(np.sum(D*D))
+
+            Rc_list.append(r0); Rlo_list.append(r0-h); Rhi_list.append(r0+h)
+            mem_means_by_bin.append(mem)
+
+        # draw step bands for centrality bins
+        c   = np.array(cent_left, float)
+        xC  = np.r_[c, 100.0]
+        yC  = np.r_[Rc_list, Rc_list[-1]]
+        yL  = np.r_[Rlo_list, Rlo_list[-1]]
+        yH  = np.r_[Rhi_list, Rhi_list[-1]]
+
+        ln, = ax.step(xC, yC, where="post", color=COLORS[ETAG], ls=LSTYLE[ETAG], lw=2.0, label=f"{ETAG} TeV")
+        ax.fill_between(xC, yL, yH, step="post", color=COLORS[ETAG], alpha=ALPHA_BAND)
+        handles_.append(ln); labels_.append(f"{ETAG} TeV")
+
+        # --- accurate MB (central + member means weighted by bin width)
+        mem_means_by_bin = np.array(mem_means_by_bin, float)  # (nbin, 48)
+        with np.errstate(invalid='ignore'):
+            mem_mb = np.nansum(wcent[:,None] * mem_means_by_bin, axis=0)
+        Dmb = mem_mb[0::2] - mem_mb[1::2]
+        hmb = 0.5*np.sqrt(np.sum(Dmb*Dmb))
+        rmb = float(np.nansum(wcent * np.array(Rc_list, float)))
+        ax.hlines([rmb], 0, 100, colors=COLORS[ETAG], linestyles=LSTYLE[ETAG], lw=1.6, alpha=0.9)
+        ax.fill_between([0,100], [rmb-hmb, rmb-hmb], [rmb+hmb, rmb+hmb], color=COLORS[ETAG], alpha=0.12)
+
+        if SAVE_CSV:
+            out = pd.DataFrame(dict(cent_left=c, r_central=Rc_list, r_lo=Rlo_list, r_hi=Rhi_list))
+            out.to_csv(OUTDIR/f"data_rpa_vs_centrality_{name}_{ETAG.replace('.','p')}TeV.csv".replace(' ','_'), index=False)
+
+    beautify_axis(ax, xlabel="Centrality [%]", ylabel=r"$R_{pA}$",
+                  xlim=(0,100), ylim=(0.35,1.25))
+    # put y-window and pT-range as notes (no titles)
+    put_note(ax, name, loc="upper left")
+    put_note(ax, rf"$p_T\in[{PT_RANGE_AVG[0]},\,{PT_RANGE_AVG[1]}]$ GeV", loc="lower left")
+
+# single legend
+uniq = {}
+for h,l in zip(handles_, labels_): uniq[l]=h
+fig.legend(list(uniq.values()), list(uniq.keys()), loc="upper center", ncol=2, frameon=False)
+
+plt.subplots_adjust(top=0.90, wspace=0.15)
+if SAVE_PDF:
+    fig.savefig(OUTDIR/f"rpa_vs_centrality_{WEIGHT_MODE}.pdf", bbox_inches="tight")
+plt.show()
+
+
+
+fig, axes = plt.subplots(1, 3, figsize=(12.5,3.6), dpi=DPI, sharey=True)
+cent_tags = [f"{a}-{b}%" for (a,b) in cent_bins]
+cent_left = [a for (a,_) in cent_bins]
+wcent     = np.array([(b-a)/100.0 for (a,b) in cent_bins], float)
+wcent    /= wcent.sum()
+
+for ax, (y0,y1,name) in zip(axes, Y_WINDOWS):
+    handles_, labels_ = [], []
+
+    for ETAG, dfmap, sysX in [("5.02", df49_by_cent_5, sys5), ("8.16", df49_by_cent_8, sys8)]:
+        Rc_list, Rlo_list, Rhi_list = [], [], []
+        mem_means_by_bin = []  # collect member means per centrality for MB combination
+
+        for tag in cent_tags:
+            g = dfmap[tag]
+            sub = g[(g["y"]>=y0) & (g["y"]<=y1) &
+                    (g["pt"]>=PT_RANGE_AVG[0]) & (g["pt"]<=PT_RANGE_AVG[1])].copy()
+            if sub.empty:
+                Rc_list.append(np.nan); Rlo_list.append(np.nan); Rhi_list.append(np.nan)
+                mem_means_by_bin.append(np.full(48, np.nan))
+                continue
+
+            # weights (same, no change)
+            mode = WEIGHT_MODE
+            if mode == "flat":
+                w = np.ones(len(sub), float)
+            elif mode == "pa@y0":
+                lut={}
+                for ptv, grp in sysX.df_pa.groupby("pt"):
+                    ys=grp["y"].to_numpy(); vals=grp["val"].to_numpy()
+                    j=int(np.argmin(np.abs(ys - Y_REF))); lut[float(ptv)]=float(vals[j])
+                w=sub["pt"].map(lambda v: lut.get(float(v),0.0)).to_numpy()
+            elif mode == "pa@local":
+                lut={(float(r.y),float(r.pt)):float(r.val) for r in sysX.df_pa.itertuples()}
+                w=np.array([lut.get((float(r.y),float(r.pt)),0.0) for r in sub.itertuples()], float)
+            elif mode == "pp@local":
+                lut={(float(r.y),float(r.pt)):float(r.val) for r in sysX.df_pp.itertuples()}
+                w=np.array([lut.get((float(r.y),float(r.pt)),0.0) for r in sub.itertuples()], float)
+            elif mode == "SA@y0":
+                puniq=np.sort(sub["pt"].unique())
+                gprov=epps5 if ETAG=="5.02" else epps8
+                SAref=gprov.SA_ypt_set(np.full_like(puniq,Y_REF), puniq, set_id=1)
+                lut={float(p):float(v) for p,v in zip(puniq, SAref)}
+                w=sub["pt"].map(lambda v: lut.get(float(v),0.0)).to_numpy()
+            else:
+                raise ValueError
+
+            if PT_FLOOR_W is not None and mode not in ("flat","SA@y0"):
+                mask_bad=(sub["pt"].to_numpy()<float(PT_FLOOR_W))
+                if Y_GUARD_MAX is not None:
+                    mask_bad &= (sub["y"].to_numpy() <= float(Y_GUARD_MAX))
+                if np.any(mask_bad):
+                    src=sysX.df_pa if mode.startswith("pa@") else sysX.df_pp
+                    for yy in np.unique(sub.loc[mask_bad,"y"].to_numpy()):
+                        cand=src[(src["y"]==float(yy))&(src["pt"]>=float(PT_FLOOR_W))].sort_values("pt")
+                        if len(cand):
+                            w[(sub["y"].to_numpy()==yy)&mask_bad] = float(cand["val"].iloc[0])
+            if (WINSOR is not None) and np.any(w>0):
+                cap=float(WINSOR[1])*np.nanquantile(w[w>0], float(WINSOR[0]))
+                w=np.clip(w,0.0,cap)
+
+            wn = (w/np.sum(w)) if np.sum(w)>0 else np.ones_like(w)/len(w)
+
+            r0  = np.sum(wn * sub["r_central"].to_numpy())
+            mem = np.array([np.sum(wn * sub[c].to_numpy()) for c in sub.columns if c.startswith("r_mem_")], float)
+            D   = mem[0::2] - mem[1::2]
+            h   = 0.5*np.sqrt(np.sum(D*D))
+
+            Rc_list.append(r0); Rlo_list.append(r0-h); Rhi_list.append(r0+h)
+            mem_means_by_bin.append(mem)
+
+        # draw step bands for centrality bins
+        c   = np.array(cent_left, float)
+        xC  = np.r_[c, 100.0]
+        yC  = np.r_[Rc_list, Rc_list[-1]]
+        yL  = np.r_[Rlo_list, Rlo_list[-1]]
+        yH  = np.r_[Rhi_list, Rhi_list[-1]]
+
+        ln, = ax.step(xC, yC, where="post", color=COLORS[ETAG], ls=LSTYLE[ETAG], lw=2.0, label=f"{ETAG} TeV")
+        ax.fill_between(xC, yL, yH, step="post", color=COLORS[ETAG], alpha=ALPHA_BAND)
+        handles_.append(ln); labels_.append(f"{ETAG} TeV")
+
+        # --- accurate MB (central + member means weighted by bin width)
+        mem_means_by_bin = np.array(mem_means_by_bin, float)  # (nbin, 48)
+        with np.errstate(invalid='ignore'):
+            mem_mb = np.nansum(wcent[:,None] * mem_means_by_bin, axis=0)
+        Dmb = mem_mb[0::2] - mem_mb[1::2]
+        hmb = 0.5*np.sqrt(np.sum(Dmb*Dmb))
+        rmb = float(np.nansum(wcent * np.array(Rc_list, float)))
+        ax.hlines([rmb], 0, 100, colors=COLORS[ETAG], linestyles=LSTYLE[ETAG], lw=1.6, alpha=0.9)
+        ax.fill_between([0,100], [rmb-hmb, rmb-hmb], [rmb+hmb, rmb+hmb], color=COLORS[ETAG], alpha=0.12)
+
+        if SAVE_CSV:
+            out = pd.DataFrame(dict(cent_left=c, r_central=Rc_list, r_lo=Rlo_list, r_hi=Rhi_list))
+            out.to_csv(OUTDIR/f"data_rpa_vs_centrality_{name}_{ETAG.replace('.','p')}TeV.csv".replace(' ','_'), index=False)
+
+    beautify_axis(ax, xlabel="Centrality [%]", ylabel=r"$R_{pA}$",
+                  xlim=(0,100), ylim=(0.35,1.25))
+    # put y-window and pT-range as notes (no titles)
+    put_note(ax, name, loc="upper left")
+    put_note(ax, rf"$p_T\in[{PT_RANGE_AVG[0]},\,{PT_RANGE_AVG[1]}]$ GeV", loc="lower left")
+
+# single legend
+uniq = {}
+for h,l in zip(handles_, labels_): uniq[l]=h
+fig.legend(list(uniq.values()), list(uniq.keys()), loc="upper center", ncol=2, frameon=False)
+
+plt.subplots_adjust(top=0.90, wspace=0.15)
+if SAVE_PDF:
+    fig.savefig(OUTDIR/f"rpa_vs_centrality_{WEIGHT_MODE}.pdf", bbox_inches="tight")
+plt.show()
+
